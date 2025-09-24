@@ -5,7 +5,7 @@ import math
 import random
 import re
 import time
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
 
 import requests
 from requests import RequestException
@@ -39,15 +39,10 @@ _DEFAULT_HEADERS = {
 
 NM_PATTERN = re.compile(r"(?:(?:^|[^\d])(\d+)(?:[^\d]|$))")
 
-__all__ = [
-    "get_card_api",
-    "get_info_card_json",
-    "get_content_v2",
-    "extract_nm",
-]
+__all__ = ["get_card_api", "get_info_card_json", "get_content_v2", "extract_nm"]
 
 
-def extract_nm(url_or_id: Any) -> Optional[int]:
+def extract_nm(url_or_id: object) -> int | None:
     """Return integer nm_id extracted from a string or integer."""
     if isinstance(url_or_id, int):
         return url_or_id if url_or_id > 0 else None
@@ -65,7 +60,7 @@ def extract_nm(url_or_id: Any) -> Optional[int]:
     return None
 
 
-def get_card_api(nm_id: Any, *, timeout: int = DEFAULT_TIMEOUT) -> Dict[str, Any]:
+def get_card_api(nm_id: object, *, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
     """Fetch product data from the primary cards API."""
     nm = extract_nm(nm_id)
     if nm is None:
@@ -77,7 +72,7 @@ def get_card_api(nm_id: Any, *, timeout: int = DEFAULT_TIMEOUT) -> Dict[str, Any
     return _request_with_retries(CARD_API_URL, params=params, timeout=timeout)
 
 
-def get_info_card_json(nm_id: Any, *, timeout: int = DEFAULT_TIMEOUT) -> Dict[str, Any]:
+def get_info_card_json(nm_id: object, *, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
     """Fetch product data from the basket fallback endpoint."""
     nm = extract_nm(nm_id)
     if nm is None:
@@ -103,7 +98,7 @@ def get_info_card_json(nm_id: Any, *, timeout: int = DEFAULT_TIMEOUT) -> Dict[st
     return {}
 
 
-def get_content_v2(nm_id: Any, *, timeout: int = DEFAULT_TIMEOUT) -> Dict[str, Any]:
+def get_content_v2(nm_id: object, *, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
     """Attempt to fetch product content from experimental endpoints."""
     nm = extract_nm(nm_id)
     if nm is None:
@@ -125,9 +120,9 @@ def get_content_v2(nm_id: Any, *, timeout: int = DEFAULT_TIMEOUT) -> Dict[str, A
 def _request_with_retries(
     url: str,
     *,
-    params: Optional[Dict[str, Any]] = None,
+    params: dict[str, Any] | None = None,
     timeout: int = DEFAULT_TIMEOUT,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     for attempt in range(1, MAX_RETRIES + 1):
         data = _single_request(url, params=params, timeout=timeout)
         if data is not None:
@@ -140,9 +135,9 @@ def _request_with_retries(
 def _single_request(
     url: str,
     *,
-    params: Optional[Dict[str, Any]] = None,
+    params: dict[str, Any] | None = None,
     timeout: int = DEFAULT_TIMEOUT,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     try:
         response = requests.get(url, params=params, headers=_DEFAULT_HEADERS, timeout=timeout)
         response.raise_for_status()
@@ -153,7 +148,7 @@ def _single_request(
         return None
 
 
-def _guess_basket_hosts(vol: int) -> Iterable[int]:
+def _guess_basket_hosts(vol: int) -> list[int]:
     if vol <= 0:
         return [9, 1, 2]
 
