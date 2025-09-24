@@ -7,6 +7,7 @@ import pytest
 import wb_discovery
 from wb_discovery import (
     CATALOG_BASE_PARAMS,
+    CATALOG_FALLBACK_REGIONS,
     RATE_LIMIT_SLEEP,
     Category,
     DiscoveryError,
@@ -39,8 +40,11 @@ class DummyResponse:
 
 
 class DummySession:
-    def __init__(self, response: DummyResponse) -> None:
-        self._response = response
+    def __init__(self, response: DummyResponse | list[DummyResponse]) -> None:
+        if isinstance(response, list):
+            self._responses = response
+        else:
+            self._responses = [response]
         self.calls: list[dict[str, Any]] = []
 
     def get(
@@ -57,7 +61,8 @@ class DummySession:
             "headers": headers,
             "timeout": timeout,
         })
-        return self._response
+        index = min(len(self.calls) - 1, len(self._responses) - 1)
+        return self._responses[index]
 
 
 class FailingJsonResponse(DummyResponse):
@@ -167,6 +172,23 @@ def test_fetch_catalog_page_success() -> None:
     base_params = {**CATALOG_BASE_PARAMS, "cat": category.id, "page": 4}
     assert session.calls[0]["params"] == base_params
     assert session.calls[0]["timeout"] == 7
+
+
+def test_fetch_catalog_page_uses_fallback_regions() -> None:
+    category = Category(id=55, name="Fallback", shard="fallback-shard")
+    responses = [
+        DummyResponse({"data": {"products": []}}),
+        DummyResponse({"data": {"products": [{"id": 7}]}}),
+    ]
+    session = DummySession(responses)
+
+    ids, success = fetch_catalog_page(session, category, 2, timeout=3)
+
+    assert ids == {7}
+    assert success is True
+    assert len(session.calls) == 2
+    assert session.calls[0]["params"]["regions"] == CATALOG_BASE_PARAMS["regions"]
+    assert session.calls[1]["params"]["regions"] == CATALOG_FALLBACK_REGIONS
 
 
 def test_fetch_catalog_page_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
