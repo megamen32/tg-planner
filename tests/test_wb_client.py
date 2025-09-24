@@ -3,6 +3,7 @@ import re
 from typing import Any
 
 import pytest
+
 from requests import HTTPError
 
 import wb_client
