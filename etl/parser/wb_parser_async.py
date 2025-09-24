@@ -1,11 +1,13 @@
-"""Utilities for collecting normalized Wildberries product payloads."""
+"""Async utilities for collecting normalized Wildberries product payloads."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from etl.parser.wb_client import (
+# импортируем async-вариант клиента
+from etl.parser.wb_client_async import (
     extract_nm,
     get_card_api,
     get_content_v2,
@@ -37,8 +39,6 @@ class ProductRaw:
     text_index: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the product payload as plain Python data structures."""
-
         return {
             "id": self.id,
             "name": self.name,
@@ -61,11 +61,11 @@ class ProductRaw:
         }
 
 
-def fetch_product_raw(nm_id: object) -> ProductRaw:
-    """Collect and normalize Wildberries product data for ``nm_id``."""
+async def fetch_product_raw(nm_id: object) -> ProductRaw:
+    """Асинхронно собирает и нормализует карточку товара WB."""
 
     nm_int = extract_nm(nm_id)
-    card_data = _ensure_mapping(get_card_api(nm_id))
+    card_data = _ensure_mapping(await get_card_api(nm_id))
     product = _extract_primary_product(card_data)
 
     product_id = _extract_int(product, "id") if product else None
@@ -78,33 +78,25 @@ def fetch_product_raw(nm_id: object) -> ProductRaw:
     brand = _normalize_string(product.get("brand")) if product else None
     supplier = _normalize_string(product.get("supplier")) if product else None
 
-    info_card = _ensure_mapping(get_info_card_json(nm_id))
+    info_card = _ensure_mapping(await get_info_card_json(nm_id))
     description = _extract_description_from_basket(info_card)
 
     content_data: dict[str, Any] = {}
     if not description:
-        content_data = _ensure_mapping(get_content_v2(nm_id))
+        content_data = _ensure_mapping(await get_content_v2(nm_id))
         description = _extract_description_from_content(content_data)
 
     if not description and nm_int is not None:
         print(f"[WARN] Description missing for nm_id {nm_int}")
 
-    price: int | None = None
-    sale_price: int | None = None
-    rating: float | None = None
-    feedbacks: int | None = None
-    category_id: int | None = None
-    category_parent_id: int | None = None
-    root_id: int | None = None
-    kind_id: int | None = None
+    price = sale_price = rating = feedbacks = None
+    category_id = category_parent_id = root_id = kind_id = None
     colors: list[str] = []
     sizes: list[str] = []
     if product:
         price = _extract_int(product, "priceU")
         sale_price = _extract_int(product, "salePriceU")
-        rating = _extract_float(product, "reviewRating")
-        if rating is None:
-            rating = _extract_float(product, "rating")
+        rating = _extract_float(product, "reviewRating") or _extract_float(product, "rating")
         feedbacks = _extract_int(product, "feedbacks")
         category_id = _extract_int(product, "subjectId")
         category_parent_id = _extract_int(product, "subjectParentId")
@@ -115,13 +107,10 @@ def fetch_product_raw(nm_id: object) -> ProductRaw:
 
         if price is None or sale_price is None:
             derived_price, derived_sale = _extract_prices_from_sizes(product.get("sizes"))
-            if price is None:
-                price = derived_price
-            if sale_price is None:
-                sale_price = derived_sale
+            price = price or derived_price
+            sale_price = sale_price or derived_sale
 
     image_urls = _build_image_urls(nm_int, product, info_card)
-
     text_parts = [part for part in (name, brand, supplier, description) if part]
     text_index = "\n".join(text_parts)
 
@@ -153,14 +142,27 @@ def fetch_product_raw(nm_id: object) -> ProductRaw:
     )
 
 
-def collect_product_records(nm_ids: Iterable[object]) -> list[dict[str, Any]]:
-    """Fetch multiple products and return JSON/parquet-friendly records."""
+async def collect_product_records(
+    nm_ids: Iterable[object],
+    *,
+    concurrency: int = 10,
+) -> list[dict[str, Any]]:
+    """
+    Асинхронно получает несколько карточек товаров параллельно.
 
-    records: list[dict[str, Any]] = []
-    for nm_id in nm_ids:
-        product = fetch_product_raw(nm_id)
-        records.append(product.to_dict())
-    return records
+    Args:
+        nm_ids: список id или ссылок.
+        concurrency: макс. число одновременных запросов.
+    """
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _worker(nm_id: object) -> dict[str, Any]:
+        async with sem:
+            product = await fetch_product_raw(nm_id)
+            return product.to_dict()
+
+    tasks = [asyncio.create_task(_worker(nm)) for nm in nm_ids]
+    return await asyncio.gather(*tasks)
 
 
 def _ensure_mapping(value: Any) -> dict[str, Any]:
