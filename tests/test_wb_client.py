@@ -4,9 +4,9 @@ from typing import Any
 
 import pytest
 
-import wb_client
-
 from requests import HTTPError
+
+import wb_client
 
 
 class DummyResponse:
