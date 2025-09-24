@@ -16,10 +16,12 @@ CATALOG_BASE_PARAMS = {
     "appType": 1,
     "curr": "rub",
     "dest": -1257786,
-    "regions": "80,64,83,4,38,33,70,82,86,75,69,68,30,48,22,1,66,31,40",
-    "spp": 0,
+    "regions": "80",
     "resultset": "catalog",
+    "limit": 100,
+    "spp": 30,
 }
+CATALOG_FALLBACK_REGIONS = "80,64,83,4,38,33,70,82,86,75,69,68,30,48,22,1,66,31,40"
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; WbDiscovery/1.0)",
     "Accept": "application/json",
@@ -202,56 +204,117 @@ def fetch_catalog_page(
     """Fetch a single catalog page returning discovered nm_id values."""
 
     url = CATALOG_URL_TEMPLATE.format(shard=category.shard)
-    params = dict(CATALOG_BASE_PARAMS)
-    params["cat"] = category.id
-    params["page"] = page
+    region_attempts = [CATALOG_BASE_PARAMS["regions"]]
+    if CATALOG_FALLBACK_REGIONS and CATALOG_FALLBACK_REGIONS != region_attempts[0]:
+        region_attempts.append(CATALOG_FALLBACK_REGIONS)
 
-    try:
-        response = session.get(url, params=params, headers=DEFAULT_HEADERS, timeout=timeout)
-    except requests.RequestException as exc:
-        print(f"[ERROR] Request failed for page {page}: {exc}", file=sys.stderr)
-        return set(), False
+    last_success = False
+    for index, regions in enumerate(region_attempts):
+        params = dict(CATALOG_BASE_PARAMS)
+        params["cat"] = category.id
+        params["page"] = page
+        params["regions"] = regions
 
-    if response.status_code == 429:
         print(
-            f"[WARN] Rate limited on page {page}; sleeping for {RATE_LIMIT_SLEEP:.1f}s",
+            "[INFO] Requesting catalog page: "
+            f"cat_id={category.id} shard={category.shard} page={page} regions={regions}",
             file=sys.stderr,
         )
-        time.sleep(RATE_LIMIT_SLEEP)
-        return set(), False
 
-    if response.status_code >= 400:
+        try:
+            response = session.get(
+                url,
+                params=params,
+                headers=DEFAULT_HEADERS,
+                timeout=timeout,
+            )
+        except requests.RequestException as exc:
+            print(
+                f"[ERROR] Request failed for page {page} (regions {regions}): {exc}",
+                file=sys.stderr,
+            )
+            return set(), False
+
+        if response.status_code == 429:
+            print(
+                f"[WARN] Rate limited on page {page}; sleeping for {RATE_LIMIT_SLEEP:.1f}s",
+                file=sys.stderr,
+            )
+            time.sleep(RATE_LIMIT_SLEEP)
+            return set(), False
+
+        if response.status_code >= 400:
+            print(
+                f"[WARN] HTTP {response.status_code} for page {page}: {response.url}",
+                file=sys.stderr,
+            )
+            return set(), False
+
+        content_type = response.headers.get("Content-Type", "")
+        if "application/json" not in content_type:
+            print(
+                f"[WARN] Unexpected content type for page {page}: {content_type or 'unknown'}",
+                file=sys.stderr,
+            )
+            return set(), False
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            print(f"[WARN] Failed to decode JSON on page {page}: {exc}", file=sys.stderr)
+            return set(), False
+
+        data_section = payload.get("data")
+        if not isinstance(data_section, Mapping):
+            print(f"[WARN] Missing 'data' section on page {page}", file=sys.stderr)
+            last_success = True
+            if index == 0 and len(region_attempts) > 1:
+                print(
+                    f"[INFO] Page {page} returned no products for regions {regions}; retrying with fallback regions.",
+                    file=sys.stderr,
+                )
+                continue
+            print(
+                f"[INFO] Page {page} returned no products for regions {regions}.",
+                file=sys.stderr,
+            )
+            break
+
+        products = data_section.get("products")
+        if not isinstance(products, list):
+            print(f"[WARN] Unexpected 'products' structure on page {page}", file=sys.stderr)
+            last_success = True
+            if index == 0 and len(region_attempts) > 1:
+                print(
+                    f"[INFO] Page {page} returned no products for regions {regions}; retrying with fallback regions.",
+                    file=sys.stderr,
+                )
+                continue
+            print(
+                f"[INFO] Page {page} returned no products for regions {regions}.",
+                file=sys.stderr,
+            )
+            break
+
+        ids = _extract_ids(product for product in products if isinstance(product, Mapping))
+        if ids:
+            return ids, True
+
+        last_success = True
+        if index == 0 and len(region_attempts) > 1:
+            print(
+                f"[INFO] Page {page} returned no products for regions {regions}; retrying with fallback regions.",
+                file=sys.stderr,
+            )
+            continue
+
         print(
-            f"[WARN] HTTP {response.status_code} for page {page}: {response.url}",
+            f"[INFO] Page {page} returned no products for regions {regions}.",
             file=sys.stderr,
         )
-        return set(), False
+        break
 
-    content_type = response.headers.get("Content-Type", "")
-    if "application/json" not in content_type:
-        print(
-            f"[WARN] Unexpected content type for page {page}: {content_type or 'unknown'}",
-            file=sys.stderr,
-        )
-        return set(), False
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        print(f"[WARN] Failed to decode JSON on page {page}: {exc}", file=sys.stderr)
-        return set(), False
-
-    data_section = payload.get("data")
-    if not isinstance(data_section, Mapping):
-        print(f"[WARN] Missing 'data' section on page {page}", file=sys.stderr)
-        return set(), True
-
-    products = data_section.get("products")
-    if not isinstance(products, list):
-        print(f"[WARN] Unexpected 'products' structure on page {page}", file=sys.stderr)
-        return set(), True
-
-    return _extract_ids(product for product in products if isinstance(product, Mapping)), True
+    return set(), last_success
 
 
 def write_output(ids: Iterable[int], path: Path, *, jsonl: bool) -> None:
@@ -300,8 +363,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             discovered.update(ids)
             print(f"[INFO] Page {page}: collected {len(ids)} ids", file=sys.stderr)
         elif success:
-            print(f"[INFO] Page {page} returned no products; stopping.", file=sys.stderr)
-            break
+            print(f"[INFO] Page {page}: no products found.", file=sys.stderr)
+        else:
+            print(
+                f"[WARN] Page {page}: request failed or was rate limited; continuing.",
+                file=sys.stderr,
+            )
 
     if not discovered:
         print("[WARN] No nm_id values collected.", file=sys.stderr)
