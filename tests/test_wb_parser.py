@@ -25,6 +25,18 @@ def test_product_raw_to_dict() -> None:
         supplier="Supplier",
         description="Description",
         sources={"card_api": {"id": 1}},
+        price=100,
+        sale_price=90,
+        rating=4.5,
+        feedbacks=10,
+        category_id=200,
+        category_parent_id=20,
+        root=500,
+        kind_id=600,
+        colors=["Red"],
+        sizes=["M"],
+        image_urls=["https://example.com/img.jpg"],
+        text_index="Name\nBrand\nSupplier\nDescription",
     )
 
     result = product.to_dict()
@@ -36,6 +48,18 @@ def test_product_raw_to_dict() -> None:
         "supplier": "Supplier",
         "description": "Description",
         "sources": {"card_api": {"id": 1}},
+        "price": 100,
+        "sale_price": 90,
+        "rating": 4.5,
+        "feedbacks": 10,
+        "category_id": 200,
+        "category_parent_id": 20,
+        "root": 500,
+        "kind_id": 600,
+        "colors": ["Red"],
+        "sizes": ["M"],
+        "image_urls": ["https://example.com/img.jpg"],
+        "text_index": "Name\nBrand\nSupplier\nDescription",
     }
 
 
@@ -106,8 +130,33 @@ def test_extract_description_from_content_variants() -> None:
 
 
 def test_fetch_product_raw_prefers_info_card(monkeypatch: pytest.MonkeyPatch) -> None:
-    card_payload = {"data": {"products": [{"id": 100, "name": "Item", "brand": "Brand", "supplier": "Supplier"}]}}
-    info_payload = {"description": "From info"}
+    card_payload = {
+        "data": {
+            "products": [
+                {
+                    "id": 100,
+                    "name": "Item",
+                    "brand": "Brand",
+                    "supplier": "Supplier",
+                    "priceU": 1500,
+                    "salePriceU": 990,
+                    "reviewRating": 4.7,
+                    "feedbacks": 42,
+                    "subjectId": 321,
+                    "subjectParentId": 123,
+                    "root": 777,
+                    "kindId": 555,
+                    "colors": [{"name": "Красный"}, {"name": "Синий"}],
+                    "sizes": [
+                        {"name": "M"},
+                        {"origName": "L"},
+                    ],
+                    "pics": 2,
+                }
+            ]
+        }
+    }
+    info_payload = {"description": "From info", "media": {"photo_count": 3}}
 
     monkeypatch.setattr(wb_parser, "get_card_api", lambda nm: card_payload)
     monkeypatch.setattr(wb_parser, "get_info_card_json", lambda nm: info_payload)
@@ -120,6 +169,22 @@ def test_fetch_product_raw_prefers_info_card(monkeypatch: pytest.MonkeyPatch) ->
     assert product.brand == "Brand"
     assert product.supplier == "Supplier"
     assert product.description == "From info"
+    assert product.price == 1500
+    assert product.sale_price == 990
+    assert product.rating == 4.7
+    assert product.feedbacks == 42
+    assert product.category_id == 321
+    assert product.category_parent_id == 123
+    assert product.root == 777
+    assert product.kind_id == 555
+    assert product.colors == ["Красный", "Синий"]
+    assert product.sizes == ["M", "L"]
+    assert product.image_urls == [
+        "https://images.wbstatic.net/big/new/0/0/100-1.jpg",
+        "https://images.wbstatic.net/big/new/0/0/100-2.jpg",
+        "https://images.wbstatic.net/big/new/0/0/100-3.jpg",
+    ]
+    assert product.text_index == "Item\nBrand\nSupplier\nFrom info"
     assert product.sources["card_api"] == card_payload
     assert product.sources["info_card_json"] == info_payload
     assert product.sources["content_v2"] == {}
@@ -139,6 +204,7 @@ def test_fetch_product_raw_uses_content(monkeypatch: pytest.MonkeyPatch) -> None
     assert product.id == 101
     assert product.description == "<p>HTML</p>"
     assert product.sources["content_v2"] == content_payload
+    assert product.text_index == "Item2\nBrand2\nSupplier2\n<p>HTML</p>"
 
 
 def test_fetch_product_raw_handles_missing_primary(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,6 +217,9 @@ def test_fetch_product_raw_handles_missing_primary(monkeypatch: pytest.MonkeyPat
     assert product.id == 999
     assert product.name is None
     assert product.description is None
+    assert product.price is None
+    assert product.colors == []
+    assert product.text_index == ""
 
 
 def test_collect_product_records(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,6 +245,18 @@ def test_collect_product_records(monkeypatch: pytest.MonkeyPatch) -> None:
             "supplier": "Supplier",
             "description": "Desc",
             "sources": {},
+            "price": None,
+            "sale_price": None,
+            "rating": None,
+            "feedbacks": None,
+            "category_id": None,
+            "category_parent_id": None,
+            "root": None,
+            "kind_id": None,
+            "colors": [],
+            "sizes": [],
+            "image_urls": [],
+            "text_index": "",
         },
         {
             "id": 2,
@@ -184,5 +265,17 @@ def test_collect_product_records(monkeypatch: pytest.MonkeyPatch) -> None:
             "supplier": "Supplier",
             "description": "Desc",
             "sources": {},
+            "price": None,
+            "sale_price": None,
+            "rating": None,
+            "feedbacks": None,
+            "category_id": None,
+            "category_parent_id": None,
+            "root": None,
+            "kind_id": None,
+            "colors": [],
+            "sizes": [],
+            "image_urls": [],
+            "text_index": "",
         },
     ]
