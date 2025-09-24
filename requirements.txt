@@ -72,6 +72,7 @@ pluggy==1.6.0
 propcache==0.3.2
 protobuf==6.31.1
 psycopg2-binary==2.9.9
+pyarrow==21.0.0
 pydantic==2.11.7
 pydantic_core==2.33.2
 Pygments==2.19.1
