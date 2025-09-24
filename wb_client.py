@@ -7,8 +7,37 @@ import re
 import time
 from typing import Any
 
-import requests
-from requests import RequestException
+try:
+    import requests
+    from requests import RequestException
+except ModuleNotFoundError as import_error:  # pragma: no cover - exercised via tests
+    import sys
+    import types
+
+    class _RequestException(Exception):
+        """Fallback RequestException when the ``requests`` package is missing."""
+
+    class _HTTPError(_RequestException):
+        """Fallback HTTPError compatible with :mod:`requests`."""
+
+    def _missing_get(*args: Any, **kwargs: Any) -> Any:
+        """Raise a helpful error explaining that ``requests`` is required."""
+
+        raise ModuleNotFoundError(
+            "The 'requests' package is required to perform HTTP requests. "
+            "Install it with 'python -m pip install requests'."
+        ) from import_error
+
+    requests = types.ModuleType("requests")
+    requests.get = _missing_get  # type: ignore[assignment]
+    requests.RequestException = _RequestException  # type: ignore[attr-defined]
+    requests.HTTPError = _HTTPError  # type: ignore[attr-defined]
+    requests.exceptions = types.SimpleNamespace(  # type: ignore[attr-defined]
+        RequestException=_RequestException,
+        HTTPError=_HTTPError,
+    )
+    sys.modules.setdefault("requests", requests)
+    RequestException = _RequestException
 
 DEFAULT_TIMEOUT = 10
 MAX_RETRIES = 4
