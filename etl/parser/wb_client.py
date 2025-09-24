@@ -1,7 +1,7 @@
 """Simple Wildberries API client with retry/backoff helpers."""
 from __future__ import annotations
 
-import math
+from bisect import bisect_left
 import random
 import re
 import time
@@ -56,6 +56,40 @@ BASKET_URL_TEMPLATE = (
     "http://basket-{host:02d}.wbbasket.ru/vol{vol}/part{part}/{nm}/info/ru/card.json"
 )
 MAX_BASKET_HOST = 32
+
+_BASKET_VOL_THRESHOLDS: tuple[int, ...] = (
+    143,
+    287,
+    431,
+    719,
+    1007,
+    1061,
+    1115,
+    1169,
+    1313,
+    1601,
+    1655,
+    1919,
+    2045,
+    2189,
+    2405,
+    2621,
+    2837,
+    3053,
+    3269,
+    3485,
+    3701,
+    3917,
+    4133,
+    4349,
+    4565,
+    4877,
+    5189,
+    5501,
+    5813,
+    6125,
+    6437,
+)
 
 CONTENT_V2_URLS: tuple[str, ...] = (
     "https://content.wb.ru/content/v2/cards/details",
@@ -178,22 +212,27 @@ def _single_request(
 
 
 def _guess_basket_hosts(vol: int) -> list[int]:
-    if vol <= 0:
+    if vol < 0:
         return [9, 1, 2]
 
-    base = max(1, math.ceil(vol / 160))
-    candidates = [base, base - 1, base + 1, base - 2, base + 2]
-    seen = set()
-    ordered = []
-    for candidate in candidates:
+    index = bisect_left(_BASKET_VOL_THRESHOLDS, vol)
+    primary_host = min(index + 1, MAX_BASKET_HOST)
+
+    candidates = [primary_host]
+    seen = {primary_host}
+
+    base = max(1, (vol + 159) // 160)
+    for candidate in (base, base - 1, base + 1, base - 2, base + 2):
         if candidate < 1:
             continue
         if candidate > MAX_BASKET_HOST:
             continue
-        if candidate not in seen:
-            seen.add(candidate)
-            ordered.append(candidate)
-    return ordered
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        candidates.append(candidate)
+
+    return candidates
 
 
 def _sleep_with_backoff(attempt: int) -> None:
