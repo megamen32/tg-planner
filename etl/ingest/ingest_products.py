@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
@@ -26,12 +27,13 @@ LITE_COLUMNS = [
     "feedbacks",
     "category_id",
     "category_parent_id",
+    "shard"
 ]
 
 STATE_FILE_NAME = "state.parquet"
 STATE_COLUMN_NAME = "id"
 ID_STR_COLUMN = "__id_str__"
-
+N_SHARDS = 10
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for the ingest utility."""
@@ -129,6 +131,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     records = read_jsonl(input_path)
     dataframe = pd.DataFrame.from_records(records)
+    dataframe['shard'] = np.arange(len(dataframe)) % N_SHARDS
 
     if "id" not in dataframe.columns:
         if len(dataframe) > 0:
