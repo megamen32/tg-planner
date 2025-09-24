@@ -34,3 +34,7 @@
 
 ## Formatting & style
 - Stick to PEP 8 conventions and prefer explicit type hints using Python 3.10+ union syntax (`int | None`).
+
+## Change Log
+- Added `wb_batch.py` providing a CLI for batch fetching Wildberries cards and exporting JSONL output.
+- Utility supports nm_id lists from files or CLI tokens and reports success/error counts.
