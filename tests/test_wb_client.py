@@ -198,7 +198,26 @@ def test_guess_basket_hosts_negative() -> None:
 
 def test_guess_basket_hosts_positive() -> None:
     hosts = wb_client._guess_basket_hosts(320)
-    assert hosts == [2, 1, 3, 4]
+    assert hosts == [3, 2, 1, 4]
+
+
+@pytest.mark.parametrize(
+    ("vol", "expected"),
+    [
+        (0, 1),
+        (144, 2),
+        (320, 3),
+        (720, 5),
+        (1116, 8),
+        (5000, 27),
+        (6126, 31),
+        (7000, wb_client.MAX_BASKET_HOST),
+    ],
+)
+def test_guess_basket_hosts_primary_mapping(vol: int, expected: int) -> None:
+    hosts = wb_client._guess_basket_hosts(vol)
+    assert hosts
+    assert hosts[0] == expected
 
 
 def test_sleep_with_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
