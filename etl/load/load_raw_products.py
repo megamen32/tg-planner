@@ -1,4 +1,3 @@
-"""CLI utility for converting product JSONL data to Parquet."""
 from __future__ import annotations
 
 import argparse
@@ -76,7 +75,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 
 
 def read_jsonl(path: Path) -> list[dict]:
-    """Read a JSONL file into a list of dictionaries while dropping raw sources."""
+    """Read a JSONL file into a list of dictionaries, filtering bad rows and dropping raw sources."""
     records: list[dict] = []
     with path.open("r", encoding="utf-8") as file:
         for line_number, line in enumerate(file, start=1):
@@ -85,13 +84,25 @@ def read_jsonl(path: Path) -> list[dict]:
                 continue
             try:
                 record = json.loads(line)
-            except json.JSONDecodeError as exc:  # pragma: no cover - defensive branch
-                print(
-                    f"Failed to parse JSON on line {line_number}: {exc}",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1) from exc
+            except json.JSONDecodeError as exc:
+                print(f"[WARN] Failed to parse JSON on line {line_number}: {exc}", file=sys.stderr)
+                continue
+
             record.pop("sources", None)
+
+            # обязательное поле id
+            if not record.get("id"):
+                continue
+            # цена должна быть > 0
+            price = record.get("price")
+            if price is None or price == 0:
+                continue
+            # название и описание не пустые
+            if not record.get("name") or len(str(record["name"])) < 3:
+                continue
+            if not record.get("description") or len(str(record["description"])) < 10:
+                continue
+
             records.append(record)
     return records
 

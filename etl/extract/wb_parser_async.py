@@ -3,62 +3,16 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
 from typing import Any
 
-# импортируем async-вариант клиента
-from etl.parser.wb_client_async import (
+from etl.schemas import ProductRaw
+
+from etl.extract.wb_client_async import (
     extract_nm,
     get_card_api,
     get_content_v2,
     get_info_card_json,
 )
-
-
-@dataclass(slots=True)
-class ProductRaw:
-    """Normalized representation of a Wildberries product."""
-
-    id: int | None
-    name: str | None
-    brand: str | None
-    supplier: str | None
-    description: str | None
-    sources: dict[str, dict[str, Any]]
-    price: int | None = None
-    sale_price: int | None = None
-    rating: float | None = None
-    feedbacks: int | None = None
-    category_id: int | None = None
-    category_parent_id: int | None = None
-    root: int | None = None
-    kind_id: int | None = None
-    colors: list[str] = field(default_factory=list)
-    sizes: list[str] = field(default_factory=list)
-    image_urls: list[str] = field(default_factory=list)
-    text_index: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "brand": self.brand,
-            "supplier": self.supplier,
-            "description": self.description,
-            "sources": self.sources,
-            "price": self.price,
-            "sale_price": self.sale_price,
-            "rating": self.rating,
-            "feedbacks": self.feedbacks,
-            "category_id": self.category_id,
-            "category_parent_id": self.category_parent_id,
-            "root": self.root,
-            "kind_id": self.kind_id,
-            "colors": list(self.colors),
-            "sizes": list(self.sizes),
-            "image_urls": list(self.image_urls),
-            "text_index": self.text_index,
-        }
 
 
 async def fetch_product_raw(nm_id: object) -> ProductRaw:
@@ -102,17 +56,11 @@ async def fetch_product_raw(nm_id: object) -> ProductRaw:
         category_parent_id = _extract_int(product, "subjectParentId")
         root_id = _extract_int(product, "root")
         kind_id = _extract_int(product, "kindId")
-        colors = _extract_named_list(product.get("colors"))
-        sizes = _extract_named_list(product.get("sizes"), keys=("name", "origName"))
 
         if price is None or sale_price is None:
             derived_price, derived_sale = _extract_prices_from_sizes(product.get("sizes"))
             price = price or derived_price
             sale_price = sale_price or derived_sale
-
-    image_urls = _build_image_urls(nm_int, product, info_card)
-    text_parts = [part for part in (name, brand, supplier, description) if part]
-    text_index = "\n".join(text_parts)
 
     sources = {
         "card_api": card_data,
@@ -134,11 +82,7 @@ async def fetch_product_raw(nm_id: object) -> ProductRaw:
         category_id=category_id,
         category_parent_id=category_parent_id,
         root=root_id,
-        kind_id=kind_id,
-        colors=colors,
-        sizes=sizes,
-        image_urls=image_urls,
-        text_index=text_index,
+        kind_id=kind_id
     )
 
 
@@ -241,64 +185,6 @@ def _extract_prices_from_sizes(sizes: Any) -> tuple[int | None, int | None]:
         if basic_int is not None or sale_int is not None:
             return (basic_int, sale_int)
     return (None, None)
-
-
-def _extract_named_list(items: Any, *, keys: tuple[str, ...] = ("name",)) -> list[str]:
-    if not isinstance(items, Sequence) or isinstance(items, (str, bytes, bytearray)):
-        return []
-    values: list[str] = []
-    for item in items:
-        if isinstance(item, Mapping):
-            for key in keys:
-                candidate = _normalize_string(item.get(key))
-                if candidate:
-                    values.append(candidate)
-                    break
-        else:
-            candidate = _normalize_string(item)
-            if candidate:
-                values.append(candidate)
-    return values
-
-
-def _build_image_urls(
-    nm: int | None,
-    product: Mapping[str, Any] | None,
-    info_card: Mapping[str, Any],
-) -> list[str]:
-    if nm is None:
-        return []
-
-    explicit_images: list[str] = []
-    if product:
-        images = product.get("images")
-        if isinstance(images, Sequence) and not isinstance(images, (str, bytes, bytearray)):
-            for entry in images:
-                candidate = _normalize_string(entry)
-                if candidate:
-                    explicit_images.append(candidate)
-    if explicit_images:
-        return explicit_images
-
-    count = 0
-    if product:
-        pics = _extract_int(product, "pics")
-        if pics:
-            count = max(count, pics)
-
-    media = info_card.get("media")
-    if isinstance(media, Mapping):
-        photo_count = _extract_int(media, "photo_count")
-        if photo_count:
-            count = max(count, photo_count)
-
-    if count <= 0:
-        return []
-
-    vol = nm // 100000 if nm >= 0 else 0
-    part = nm // 1000 if nm >= 0 else 0
-    base_url = "https://images.wbstatic.net/big/new"
-    return [f"{base_url}/{vol}/{part}/{nm}-{index}.jpg" for index in range(1, count + 1)]
 
 
 def _extract_description_from_basket(data: Mapping[str, Any]) -> str | None:

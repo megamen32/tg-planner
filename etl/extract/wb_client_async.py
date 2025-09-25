@@ -7,7 +7,7 @@ import re
 import asyncio
 from typing import Any
 
-import httpx
+import httpx # type: ignore
 
 DEFAULT_TIMEOUT = 10.0
 MAX_RETRIES = 4
@@ -75,12 +75,13 @@ async def _single_request(
     params: dict[str, Any] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> dict[str, Any] | None:
+    resp = None
     try:
         resp = await client.get(url, params=params, headers=_DEFAULT_HEADERS, timeout=timeout)
         resp.raise_for_status()
         return resp.json()
     except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
-        printable_url = getattr(resp, "url", url)
+        printable_url = getattr(resp, "url", url) if resp is not None else url
         print(f"[WARN] Request to {printable_url} failed: {exc}")
         return None
 

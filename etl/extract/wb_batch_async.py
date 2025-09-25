@@ -6,16 +6,16 @@ import json
 import sys
 from pathlib import Path
 from typing import Any, Sequence
-import aiofiles
-from etl.parser.wb_parser import fetch_product_raw  # важно: пакетный импорт
+import aiofiles # type: ignore
+from tqdm import tqdm # type: ignore
+from etl.extract.wb_parser_async import fetch_product_raw  
 
 
 async def fetch_one(nm_id: int, semaphore: asyncio.Semaphore) -> dict[str, Any] | None:
     """Асинхронная обёртка для fetch_product_raw."""
     async with semaphore:
-        loop = asyncio.get_running_loop()
         try:
-            product = await loop.run_in_executor(None, fetch_product_raw, nm_id)
+            product = await fetch_product_raw(nm_id) 
             return product.to_dict()
         except Exception as exc:
             print(f"[ERROR] Failed to fetch nm_id {nm_id}: {exc}", file=sys.stderr)
@@ -39,7 +39,7 @@ async def write_products_to_jsonl(
     async with aiofiles.open(output_path, "w", encoding=encoding) as stream:
         tasks = [fetch_one(nm_id, semaphore) for nm_id in nm_ids]
 
-        for coro in asyncio.as_completed(tasks):
+        for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Fetching"):
             result = await coro
             if result:
                 await stream.write(json.dumps(result, ensure_ascii=False) + "\n")
